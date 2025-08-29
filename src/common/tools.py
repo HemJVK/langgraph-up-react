@@ -3,15 +3,20 @@
 import logging
 from typing import List, Any, Optional
 
+from langchain.tools import tool
+from langchain_community.tools import WikipediaQueryRun, ArxivQueryRun
+from langchain_community.utilities import WikipediaAPIWrapper, ArxivAPIWrapper
 # FIX: Import the new, non-deprecated class from the correct package
 from langchain_tavily import TavilySearch
 from langchain_experimental.tools import PythonREPLTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
 from dotenv import load_dotenv
-load_dotenv()
 
 from .context import Context
+from .vector_store import add_document, search_documents
+
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +25,19 @@ web_search = TavilySearch(max_results=5)
 
 # Global cache for the MCP client to avoid re-initialization.
 _mcp_client: Optional[MultiServerMCPClient] = None
+
+
+@tool
+def add_document_tool(document: str) -> str:
+    """Adds a document to the vector store."""
+    add_document(document)
+    return f"Document added to the vector store: {document}"
+
+
+@tool
+def search_documents_tool(query: str, k: int = 4) -> list[str]:
+    """Searches for similar documents in the vector store."""
+    return search_documents(query, k)
 
 
 async def get_mcpo_tools(mcpo_url: Optional[str]) -> List[Any]:
@@ -58,8 +76,10 @@ async def create_tools(context: Context) -> List[Any]:
     # FIX: Use the new class name
     search_tool = TavilySearch(max_results=context.max_search_results)
     python_repl_tool = PythonREPLTool()
-    local_tools = [search_tool, python_repl_tool]
-    logger.info(f"Loaded {len(local_tools)} local tools (Search, Python REPL).")
+    wikipedia_tool = WikipediaQueryRun(api_wrapper=WikipediaAPIWrapper())
+    arxiv_tool = ArxivQueryRun(api_wrapper=ArxivAPIWrapper())
+    local_tools = [search_tool, python_repl_tool, wikipedia_tool, arxiv_tool, add_document_tool, search_documents_tool]
+    logger.info(f"Loaded {len(local_tools)} local tools (Search, Python REPL, Wikipedia, Arxiv, Vector Store).")
 
     # 2. Fetch remote tools from the OpenWebUI MCPO server, if configured.
     remote_tools = []

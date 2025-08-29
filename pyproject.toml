@@ -1,6 +1,6 @@
 [project]
 name = "langgraph-up-react"
-version = "0.1.1"
+version = "0.2.0"
 description = "Starter template for making a custom Reasoning and Action agent (using tool calling) in LangGraph."
 authors = [
     { name = "William Fu-Hinthorn", email = "13333726+hinthornw@users.noreply.github.com" },
@@ -24,6 +24,9 @@ dependencies = [
     "langchain-google-genai>=2.1.10",
     "langchain-core>=0.3.75",
     "langchain-ollama>=0.3.7",
+    "faiss-cpu>=1.7.4",
+    "wikipedia>=1.4.0",
+    "arxiv>=2.1.0",
 ]
 
 
