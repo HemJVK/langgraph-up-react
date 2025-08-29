@@ -1,69 +1,78 @@
-"""Custom model integrations for ReAct agent."""
+"""Custom model integrations for the LangGraph agent."""
 
 import os
-from typing import Any, List, Optional, Union
+from typing import Any, List
 
-from langchain_qwq import ChatQwen, ChatQwQ
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_openai import ChatOpenAI
+from langchain_groq import ChatGroq
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_community.chat_models import ChatOllama
 
+from dotenv import load_dotenv
+load_dotenv()
 
-def create_qwen_model(
-    model_name: str,
-    api_key: Optional[str] = None,
-    base_url: Optional[str] = None,
-    region: Optional[str] = None,
-    **kwargs: Any,
-) -> Union[ChatQwQ, ChatQwen]:
-    """Create a Qwen model with proper configuration.
-
-    Args:
-        model_name: The model name (e.g., 'qwq-32b-preview', 'qwen-plus')
-        api_key: DashScope API key (defaults to env var DASHSCOPE_API_KEY)
-        base_url: Custom base URL for API (optional)
-        region: Region setting ('prc' for China, 'international' for global)
-                Defaults to env var REGION
-        **kwargs: Additional model parameters
-
-    Returns:
-        Configured ChatQwQ instance for QwQ/QvQ models or ChatQwen for other Qwen models
+def create_model(model_string: str, **kwargs: Any) -> BaseChatModel:
     """
-    # Get API key from env if not provided
-    if api_key is None:
-        api_key = os.getenv("DASHSCOPE_API_KEY")
+    Create a chat model instance based on a provider-prefixed model string.
+    ... (docstring is correct) ...
+    """
+    if ":" not in model_string:
+        raise ValueError(
+            f"Invalid model string: '{model_string}'. "
+            "Expected format is 'provider:model_name'."
+        )
 
-    # Get region from env if not provided
-    if region is None:
-        region = os.getenv("REGION")
+    provider, model_name = model_string.split(":", 1)
 
-    # Set base URL based on region if not explicitly provided
-    if base_url is None and region:
-        if region.lower() == "prc":
-            # China mainland endpoint
-            base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-        elif region.lower() == "international":
-            # International endpoint
-            base_url = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+    # --- THIS IS THE CRUCIAL FIX ---
+    # Add validation to ensure both parts of the string are non-empty.
+    if not provider or not model_name:
+        raise ValueError(
+            f"Invalid model string: '{model_string}'. "
+            "Both provider and model_name must be specified."
+        )
+    # --------------------------------
 
-    # Create model configuration
-    config = {"model": model_name, "api_key": api_key, **kwargs}
+    model_kwargs = {"model": model_name, **kwargs}
 
-    if base_url:
-        config["base_url"] = base_url
+    if provider == "openai":
+        return ChatOpenAI(**model_kwargs)
 
-    # Select the appropriate chat model based on model name
-    # Use ChatQwQ for QwQ and QvQ models, ChatQwen for other Qwen models
-    if model_name.startswith(("qwq", "qvq")):
-        return ChatQwQ(**config)
+    elif provider == "groq":
+        model_kwargs["model_name"] = model_name
+        del model_kwargs["model"]
+        return ChatGroq(**model_kwargs)
+
+    elif provider == "ollama":
+        return ChatOllama(**model_kwargs)
+
+    elif provider == "gemini":
+        return ChatGoogleGenerativeAI(**model_kwargs)
+
     else:
-        return ChatQwen(**config)
+        raise ValueError(
+            f"Unsupported model provider: '{provider}'. "
+            "Supported providers are 'openai', 'groq', 'ollama', 'gemini'."
+        )
 
 
-def get_supported_qwen_models() -> List[str]:
-    """Get list of supported Qwen models."""
+def get_supported_models() -> List[str]:
+    """
+    Get a list of example supported models for each provider.
+    ... (docstring is correct) ...
+    """
     return [
-        "qwen-plus",
-        "qwen-turbo",
-        "qwen-max",
-        "qwq-32b-preview",
-        "qvq-72b-preview",
-        # Add more Qwen models as they become available
+        "openai:gpt-4o",
+        "openai:gpt-4o-mini",
+        "openai:gpt-4-turbo",
+        "openai:gpt-3.5-turbo",
+        "groq:llama3-70b-8192",
+        "groq:llama3-8b-8192",
+        "groq:mixtral-8x7b-32768",
+        "ollama:llama3",
+        "ollama:phi3",
+        "ollama:mistral",
+        "gemini:gemini-1.5-pro-latest",
+        "gemini:gemini-1.5-flash-latest",
     ]

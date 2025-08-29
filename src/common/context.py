@@ -7,6 +7,8 @@ from typing import Annotated
 
 from . import prompts
 
+from dotenv import load_dotenv
+load_dotenv()
 
 @dataclass(kw_only=True)
 class Context:
@@ -21,9 +23,10 @@ class Context:
     )
 
     model: Annotated[str, {"__template_metadata__": {"kind": "llm"}}] = field(
-        default="qwen:qwen-flash",
+        default="openai:gpt-4o-mini",
         metadata={
             "description": "The name of the language model to use for the agent's main interactions. "
+            "Supported providers include 'openai', 'groq', 'ollama', and 'gemini'. "
             "Should be in the form: provider:model-name.",
             "json_schema_extra": {"langgraph_nodes": ["call_model"]},
         },
@@ -37,10 +40,11 @@ class Context:
         },
     )
 
-    enable_deepwiki: bool = field(
-        default=False,
+    mcpo_url: str = field(
+        default="",
         metadata={
-            "description": "Whether to enable the DeepWiki MCP tool for accessing open source project documentation.",
+            "description": "The URL of the OpenWebUI MCPO server to fetch additional tools from. "
+                         "If left empty, this feature is disabled.",
             "json_schema_extra": {"langgraph_nodes": ["tools"]},
         },
     )
@@ -61,7 +65,9 @@ class Context:
 
             # Only override with environment variable if current value equals default
             # This preserves explicit configuration from LangGraph configurable
+            # --- FIX: REMOVED THE TYPO "a" ---
             if current_value == default_value and env_value is not None:
+            # --------------------------------
                 if isinstance(default_value, bool):
                     # Handle boolean environment variables
                     env_bool_value = env_value.lower() in ("true", "1", "yes", "on")

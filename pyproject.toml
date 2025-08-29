@@ -15,8 +15,15 @@ dependencies = [
     "langchain>=0.2.14",
     "python-dotenv>=1.0.1",
     "langchain-tavily>=0.1",
-    "langchain-qwq>=0.2.1",
     "langchain-mcp-adapters>=0.1.9",
+    "groq>=0.31.0",
+    "mcpo>=0.0.17",
+    "langchain-groq>=0.3.7",
+    "langchain-community>=0.3.29",
+    "langchain-experimental>=0.3.4",
+    "langchain-google-genai>=2.1.10",
+    "langchain-core>=0.3.75",
+    "langchain-ollama>=0.3.7",
 ]
 
 

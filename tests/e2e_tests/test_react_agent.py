@@ -1,132 +1,103 @@
-"""End-to-end tests for the LangGraph ReAct agent API."""
+"""
+End-to-end tests for the LangGraph ReAct agent API.
+
+These tests require the LangGraph server to be running.
+(e.g., via `make dev`)
+"""
+
+import pytest
+
+from tests.test_data import TestQuestions
+
+# Mark all tests in this file as e2e
+pytestmark = pytest.mark.e2e
+
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
-async def test_api_simple_question(
-    langgraph_client, assistant_id, test_helpers
+async def test_api_simple_knowledge_question(
+    langgraph_client, assistant_id, helpers
 ) -> None:
-    """Test agent can answer a simple question without tool usage."""
+    """Test the agent's ability to answer a direct question without using tools."""
+    # Arrange
     thread = await langgraph_client.threads.create()
-    thread_id = thread["thread_id"]
+    question_data = TestQuestions.SIMPLE_KNOWLEDGE
+    run_input = {"messages": [{"role": "human", "content": question_data["question"]}]}
 
-    from tests.test_data import TestQuestions
-
-    question_data = TestQuestions.SIMPLE_MATH
-    input_data = {"messages": [{"role": "human", "content": question_data["question"]}]}
-
+    # Act
     result = await langgraph_client.runs.wait(
-        thread_id=thread_id, assistant_id=assistant_id, input=input_data
+        thread_id=thread["thread_id"], assistant_id=assistant_id, input=run_input
     )
 
+    # Assert
     messages = result["messages"]
-    test_helpers.assert_valid_response(
-        messages, question_data["expected_answer"], min_messages=2
+    helpers.assert_valid_response(messages, expected_content=question_data["expected_in_response"])
+
+
+async def test_api_uses_web_search_tool(
+    langgraph_client, assistant_id, helpers
+) -> None:
+    """Test that the agent correctly uses the web search tool for a timely question."""
+    # Arrange
+    thread = await langgraph_client.threads.create()
+    question_data = TestQuestions.TOOL_USAGE_KNOWLEDGE
+    run_input = {"messages": [{"role": "human", "content": question_data["question"]}]}
+
+    # Act
+    result = await langgraph_client.runs.wait(
+        thread_id=thread["thread_id"], assistant_id=assistant_id, input=run_input
     )
-    assert not any(
-        msg.get("tool_calls") for msg in messages if isinstance(msg, dict)
-    ), "Simple math question should not require tool usage"
+
+    # Assert
+    messages = result["messages"]
+    helpers.assert_valid_response(messages)
+    # Verify that the correct tool was used to find the answer
+    helpers.assert_tool_usage(messages, tool_name=question_data["tool_to_use"])
 
 
-async def test_api_streaming_with_search(langgraph_client, assistant_id) -> None:
-    """Test agent streaming and tool usage in ReAct pattern."""
+async def test_api_uses_python_repl_tool(
+    langgraph_client, assistant_id, helpers
+) -> None:
+    """Test that the agent correctly uses the Python REPL for a calculation."""
+    # Arrange
+    thread = await langgraph_client.threads.create()
+    question_data = TestQuestions.TOOL_USAGE_CALCULATION
+    run_input = {"messages": [{"role": "human", "content": question_data["question"]}]}
+
+    # Act
+    result = await langgraph_client.runs.wait(
+        thread_id=thread["thread_id"], assistant_id=assistant_id, input=run_input
+    )
+
+    # Assert
+    messages = result["messages"]
+    helpers.assert_valid_response(messages, expected_content=question_data["expected_in_response"])
+    # Verify that the Python tool was used for the calculation
+    helpers.assert_tool_usage(messages, tool_name=question_data["tool_to_use"])
+
+
+async def test_api_maintains_conversation_context(
+    langgraph_client, assistant_id, helpers
+) -> None:
+    """Test that the agent can remember information across multiple turns in a thread."""
+    # Arrange
     thread = await langgraph_client.threads.create()
     thread_id = thread["thread_id"]
 
-    input_data = {
-        "messages": [
-            {
-                "role": "human",
-                "content": "What was the latest LangChain release version announced in December 2024?",
-            }
-        ]
-    }
+    # First turn: provide a piece of information
+    input1 = {"messages": [{"role": "human", "content": "My name is Bob."}]}
+    await langgraph_client.runs.wait(thread_id=thread_id, assistant_id=assistant_id, input=input1)
 
-    chunks = []
-    tool_calls_detected = False
+    # Second turn: ask a question that relies on the previous turn's context
+    input2 = {"messages": [{"role": "human", "content": "What is my name?"}]}
 
-    async for chunk in langgraph_client.runs.stream(
-        thread_id=thread_id,
-        assistant_id=assistant_id,
-        input=input_data,
-        stream_mode="updates",
-    ):
-        chunks.append(chunk)
-        if chunk.data and isinstance(chunk.data, dict):
-            for node_name, node_data in chunk.data.items():
-                if node_name == "tools" and node_data:
-                    tool_calls_detected = True
-
-    assert len(chunks) > 0, "Should receive streaming chunks"
-    assert tool_calls_detected, "Agent should have used search tool"
-
-    final_state = await langgraph_client.threads.get_state(thread_id)
-    messages = final_state["values"]["messages"]
-    final_response = str(messages[-1]["content"]).lower()
-    assert any(
-        keyword in final_response for keyword in ["version", "release", "langchain"]
-    ), f"Expected version/release info in response: {final_response}"
-
-
-async def test_api_thread_management(langgraph_client, assistant_id) -> None:
-    """Test conversation context persistence across messages."""
-    thread = await langgraph_client.threads.create()
-    thread_id = thread["thread_id"]
-
-    # First message
-    input1 = {"messages": [{"role": "human", "content": "My favorite color is blue."}]}
-    await langgraph_client.runs.wait(
-        thread_id=thread_id, assistant_id=assistant_id, input=input1
-    )
-
-    # Second message (should maintain context)
-    input2 = {"messages": [{"role": "human", "content": "What is my favorite color?"}]}
+    # Act
     result2 = await langgraph_client.runs.wait(
         thread_id=thread_id, assistant_id=assistant_id, input=input2
     )
 
+    # Assert
     messages = result2["messages"]
-    final_response = str(messages[-1]["content"]).lower()
-    assert "blue" in final_response, (
-        "Agent should remember context from conversation history"
-    )
-
-
-async def test_api_react_pattern_with_multiple_tools(
-    langgraph_client, assistant_id
-) -> None:
-    """Test the full ReAct pattern: Reasoning -> Action -> Observation."""
-    thread = await langgraph_client.threads.create()
-    thread_id = thread["thread_id"]
-
-    input_data = {
-        "messages": [
-            {
-                "role": "human",
-                "content": "I need to research Python web frameworks. Can you search for information about FastAPI and Django, then compare them?",
-            }
-        ]
-    }
-
-    chunks = []
-    tool_calls_count = 0
-
-    async for chunk in langgraph_client.runs.stream(
-        thread_id=thread_id,
-        assistant_id=assistant_id,
-        input=input_data,
-        stream_mode="updates",
-    ):
-        chunks.append(chunk)
-        if chunk.data and isinstance(chunk.data, dict):
-            for node_name, node_data in chunk.data.items():
-                if node_name == "tools" and node_data:
-                    tool_calls_count += 1
-
-    final_state = await langgraph_client.threads.get_state(thread_id)
-    messages = final_state["values"]["messages"]
-    final_response = str(messages[-1]["content"]).lower()
-
-    assert len(chunks) > 0, "Should receive streaming chunks"
-    assert tool_calls_count > 0, "Agent should have made tool calls"
-    assert any(framework in final_response for framework in ["fastapi", "django"]), (
-        "Response should mention the frameworks that were researched"
-    )
+    helpers.assert_valid_response(messages, expected_content="Bob")

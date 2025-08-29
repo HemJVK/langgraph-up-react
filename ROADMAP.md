@@ -2,59 +2,55 @@
 
 This document outlines the planned upgrades and enhancements for the LangGraph ReAct Agent template.
 
-## v0.3.0 - Prototyping & Deployment Infrastructure (Planning)
+## v0.3.0 - Productionization & Deployment (Planning)
 
-> Reference: [LangGraph Platform Standalone Server Deployment](https://docs.langchain.com/langgraph-platform/deploy-standalone-server#how-to-deploy-self-hosted-standalone-server)
+> This phase focuses on making the agent easy to deploy and manage in production environments.
 
-### LangGraph Platform Standalone Server (Prototyping)
-- **Template Integration**: Pre-configured deployment files directly in template for immediate developer use
-- **Self-Hosted Setup**: Complete standalone server configuration following official LangGraph Platform guidelines
-- **Container Setup**: Docker builds optimized for LangGraph Platform standalone server deployment
+### LangGraph Platform Standalone Server
+- **Containerization**: Provide an optimized `Dockerfile` for building the agent as a standalone service.
+- **Docker Compose**: Include a `docker-compose.yml` for easy local and single-node deployments of the agent and any required services (e.g., a local Ollama instance).
+- **Kubernetes Manifests**: Supply template Kubernetes manifests (Deployment, Service, ConfigMap) for deploying the agent to a K8s cluster.
+- **Configuration Management**: Enhance the `Context` system to securely load configurations from environment variables and Kubernetes Secrets.
 
-### Deployment Configurations in Template
-- **Docker Compose**: Ready-to-use `docker-compose.yml` for local and prototype standalone server deployments
-- **Kubernetes Manifests**: K8s deployment configurations with ConfigMaps, Secrets, and service definitions for prototype environments
-- **Development Workflow**: Seamless transition from local development (`make dev`) to containerized prototyping
+## v0.2.0 - Advanced Tooling & Evaluation (Planning)
 
-## v0.2.0 - Multi-Provider Evaluation Framework (Planning)
+> This phase will expand the agent's capabilities and introduce a formal framework for measuring its performance.
 
-### SiliconFlow Integration
-- **Provider Support**: Add standalone SiliconFlow provider prefix in `load_chat_model`
-- **Regional Coverage**: Support both PRC and international API bases for SiliconFlow
-- **SOTA OSS Models**: Leverage state-of-the-art open-source models for comprehensive evaluation
+### Expanded Tool Library
+- **File System Access**: Equip the agent with tools to read, write, and list files on a local file system (within a secure, sandboxed environment).
+- **Database Tools**: Add tools for connecting to and querying SQL databases, allowing the agent to interact with structured data.
+- **Advanced Agentic Tools**: Integrate more complex tools like `create_csv_agent` from LangChain to give the agent specialized, task-specific capabilities.
 
-### Agent Evaluation
-- **OpenEvals Integration**: Implement basic evaluation framework using OpenEvals
-- **AgentEvals Setup**: Add AgentEvals for comprehensive agent performance testing
-- **Evaluation Tests**: Create structured evaluation test suites to measure agent effectiveness across multiple model providers
+### Agent Evaluation Framework
+- **LangSmith Evals Integration**: Implement an evaluation framework using LangSmith Evals to measure agent performance across various tasks.
+- **Multi-Provider Benchmarking**: Create structured evaluation suites to compare the effectiveness, speed, and cost of different model providers (OpenAI, Groq, Gemini) on standardized benchmarks.
+- **CI/CD Integration**: Integrate the evaluation tests into a CI/CD pipeline to automatically check for performance regressions.
 
-## v0.1.0 - Core Infrastructure Enhancements (Completed)
+## v0.1.0 - Multi-Provider Architecture & Core Enhancements (Completed)
 
-### Dynamic Tool Integration
-- **DeepWiki MCP Integration**: Added dynamic loading of DeepWiki MCP tools for open source documentation
-- **Tool Discovery**: Implemented runtime tool loading with graceful fallback when services unavailable
-- **Configuration Toggle**: Added `enable_deepwiki` flag for optional documentation tool integration
+> This version represents a complete architectural overhaul, moving from a single-provider implementation to a flexible, powerful, multi-provider platform.
 
-### Model Provider Expansion  
-- **Qwen Integration**: Full support for Qwen models via `langchain-qwq` with QwQ/QvQ reasoning models
-- **Regional API Support**: Dynamic base URL selection for PRC/international endpoints via `REGION` env var
-- **Multi-Provider Architecture**: Unified model loading supporting OpenAI-compatible and Qwen-specific providers
+### Model Provider Expansion
+- **Multi-Provider Architecture**: Replaced the Qwen-specific implementation with a unified model factory (`create_model`) that supports **OpenAI, Groq, Google Gemini, and Ollama**.
+- **Standardized Model Loading**: Implemented a simple and consistent `provider:model_name` format for specifying models.
 
-### Code Architecture Refactoring
-- **Common Module**: Extracted shared components (context, models, tools, utils, prompts) into reusable `common/` module
-- **Modular Agent Structure**: Prepared scalable architecture supporting multiple agents under `src/`
-- **Tool Naming**: Renamed `search` to `web_search` for API compatibility
+### Dynamic & Enhanced Tooling
+- **Local "BigTools"**: Integrated powerful, general-purpose tools from the LangChain ecosystem, including **Tavily Search** (web search) and **Python REPL** (code execution).
+- **Remote Tool Extensibility**: Removed the hardcoded DeepWiki client and added support for the **OpenWebUI MCPO** protocol, allowing the agent to dynamically load tools from any compliant endpoint.
 
-### Comprehensive Test Suite
-- **60+ Test Cases**: Complete coverage across unit/integration/e2e categories with structured test data
-- **ReAct Pattern Validation**: E2E tests verifying tool-model interaction loops
-- **Error Handling Coverage**: Extensive edge case and failure mode testing
+### Code Architecture & Prompt Refactoring
+- **Modular Components**: Solidified the reusable `common/` module for context, models, tools, and prompts.
+- **ReAct Prompt Engine**: Upgraded the system prompt to a robust ReAct (Reason-Action) format, essential for guiding the model's tool usage effectively.
 
-### Development Tools
-- **Development Server**: `make dev` and `make dev_ui` commands for LangGraph development
-- **Test Organization**: Structured test commands with watch modes for unit/integration/e2e testing
-- **Async Test Support**: Proper `pytest-asyncio` configuration
+### Comprehensive Test Suite Overhaul
+- **Full Test Rewrite**: Replaced the entire test suite with new unit and integration tests covering the new architecture.
+- **Mock-Based Testing**: The new suite uses extensive mocking and parametrization to ensure fast, reliable, and deterministic tests for all components and model providers.
+- **ReAct Loop Validation**: Tests now validate the full Thought -> Action -> Observation cycle of the agent's logic.
+
+### Development Experience
+- **Simplified Configuration**: Streamlined the `.env` file to support the new providers.
+- **Developer Tooling**: Maintained and validated the `make` commands for testing, linting, and running the development server.
 
 ---
 
-Each version builds upon the previous foundation, progressively enhancing the agent's capabilities, developer experience, and testing infrastructure.
+Each version builds upon the previous foundation, progressively enhancing the agent's capabilities, developer experience, and deployment readiness.

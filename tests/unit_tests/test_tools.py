@@ -1,124 +1,96 @@
-"""Test suite for tools functionality."""
+"""
+Comprehensive unit tests for the agent's tool creation and management module.
+"""
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+# FIX: Import the new, non-deprecated class
+from langchain_tavily import TavilySearch
+from langchain_experimental.tools import PythonREPLTool
 
-from common.tools import get_tools, web_search
-from tests.test_data import TestModels
+from common.context import Context
+from common.tools import create_tools, get_mcpo_tools
 
+# Mark all tests in this file as asyncio
+pytestmark = pytest.mark.asyncio
 
-class TestGetTools:
-    """Test the get_tools function for context-based tool loading."""
+# --- FIX: Add a fixture to reset the global state before each test ---
+@pytest.fixture(autouse=True)
+def reset_mcp_client_cache():
+    """
+    This fixture automatically runs before each test in this file.
+    It resets the global _mcp_client to prevent test pollution.
+    """
+    from common import tools
+    tools._mcp_client = None
+    yield
+# --------------------------------------------------------------------
 
-    @pytest.mark.asyncio
-    async def test_get_tools_with_deepwiki_disabled(self) -> None:
-        """Test get_tools returns only web_search when deepwiki is disabled."""
-        mock_runtime = MagicMock()
-        mock_runtime.context.enable_deepwiki = False
+class TestLocalToolCreation:
+    """Tests the creation and configuration of local tools."""
 
-        with patch("common.tools.get_runtime", return_value=mock_runtime):
-            tools = await get_tools()
+    async def test_create_tools_local_only(self) -> None:
+        context = Context(max_search_results=10, mcpo_url="")
+        tools = await create_tools(context)
 
-        assert len(tools) == 1
-        assert tools[0] == web_search
+        assert len(tools) == 2
+        # FIX: Check for the new class name
+        assert any(isinstance(t, TavilySearch) for t in tools)
+        assert any(isinstance(t, PythonREPLTool) for t in tools)
 
-    @pytest.mark.asyncio
-    async def test_get_tools_with_deepwiki_enabled(self) -> None:
-        """Test get_tools includes deepwiki tools when enabled."""
-        mock_runtime = MagicMock()
-        mock_runtime.context.enable_deepwiki = True
-
-        mock_deepwiki_tool1 = AsyncMock()
-        mock_deepwiki_tool2 = AsyncMock()
-        mock_deepwiki_tools = [mock_deepwiki_tool1, mock_deepwiki_tool2]
-
-        with (
-            patch("common.tools.get_runtime", return_value=mock_runtime),
-            patch(
-                "common.tools.get_deepwiki_tools", return_value=mock_deepwiki_tools
-            ) as mock_get_deepwiki,
-        ):
-            tools = await get_tools()
-
-        assert len(tools) == 3
-        assert tools[0] == web_search
-        assert tools[1] == mock_deepwiki_tool1
-        assert tools[2] == mock_deepwiki_tool2
-        mock_get_deepwiki.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_get_tools_with_empty_deepwiki_tools(self) -> None:
-        """Test get_tools handles empty deepwiki tools list."""
-        mock_runtime = MagicMock()
-        mock_runtime.context.enable_deepwiki = True
-
-        with (
-            patch("common.tools.get_runtime", return_value=mock_runtime),
-            patch(
-                "common.tools.get_deepwiki_tools", return_value=[]
-            ) as mock_get_deepwiki,
-        ):
-            tools = await get_tools()
-
-        assert len(tools) == 1
-        assert tools[0] == web_search
-        mock_get_deepwiki.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_web_search_function(self) -> None:
-        """Test the web_search function uses runtime context correctly."""
-        mock_runtime = MagicMock()
-        mock_runtime.context.max_search_results = 10
-
-        mock_tavily = MagicMock()
-        mock_tavily.ainvoke = AsyncMock(return_value={"results": ["test result"]})
-
-        with (
-            patch("common.tools.get_runtime", return_value=mock_runtime),
-            patch(
-                "common.tools.TavilySearch", return_value=mock_tavily
-            ) as mock_tavily_class,
-        ):
-            result = await web_search("test query")
-
-        mock_tavily_class.assert_called_once_with(max_results=10)
-        mock_tavily.ainvoke.assert_called_once_with({"query": "test query"})
-        assert result == {"results": ["test result"]}
+        search_tool = next(t for t in tools if isinstance(t, TavilySearch))
+        assert search_tool.max_results == 10
 
 
-class TestToolsIntegration:
-    """Integration tests for tools with context system."""
+class TestMCPOIntegration:
+    """Tests the integration with the OpenWebUI MCPO client."""
 
-    @pytest.mark.asyncio
-    async def test_tools_respect_context_configuration(self) -> None:
-        """Test that tools loading respects different context configurations."""
-        # This test verifies the integration between Context and get_tools
-        from common.context import Context
+    @patch("common.tools.MultiServerMCPClient")
+    async def test_get_mcpo_tools_success(self, mock_mcp_client_class: MagicMock) -> None:
+        mock_tool = MagicMock(name="RemoteTool")
+        mock_client_instance = MagicMock()
+        mock_client_instance.get_tools = AsyncMock(return_value=[mock_tool])
+        mock_mcp_client_class.return_value = mock_client_instance
+        mcpo_url = "http://fake-url:8080/mcp"
 
-        # Mock the runtime system to use our test context
-        test_context_disabled = Context(
-            enable_deepwiki=False, model=TestModels.QWEN_PLUS
+        tools = await get_mcpo_tools(mcpo_url)
+
+        assert tools == [mock_tool]
+        mock_mcp_client_class.assert_called_once_with(
+            {"openwebui_mcpo": {"url": mcpo_url, "transport": "sse"}}
         )
-        test_context_enabled = Context(enable_deepwiki=True, model=TestModels.QWEN_PLUS)
 
-        mock_runtime_disabled = MagicMock()
-        mock_runtime_disabled.context = test_context_disabled
+    async def test_get_mcpo_tools_with_empty_url(self) -> None:
+        assert await get_mcpo_tools("") == []
+        assert await get_mcpo_tools(None) == []
 
-        mock_runtime_enabled = MagicMock()
-        mock_runtime_enabled.context = test_context_enabled
+    @patch("common.tools.MultiServerMCPClient")
+    async def test_get_mcpo_tools_client_initialization_failure(
+        self, mock_mcp_client_class: MagicMock
+    ) -> None:
+        # This test will now pass because the fixture resets the global client.
+        mock_mcp_client_class.side_effect = ConnectionError("Connection failed")
+        tools = await get_mcpo_tools("http://some-url")
+        assert tools == []
 
-        # Test with deepwiki disabled
-        with patch("common.tools.get_runtime", return_value=mock_runtime_disabled):
-            tools_disabled = await get_tools()
 
-        # Test with deepwiki enabled (mock the actual MCP call)
-        with (
-            patch("common.tools.get_runtime", return_value=mock_runtime_enabled),
-            patch("common.tools.get_deepwiki_tools", return_value=[AsyncMock()]),
-        ):
-            tools_enabled = await get_tools()
+class TestCombinedToolCreation:
+    """Tests the combination of local and remote tools."""
 
-        # Verify different tool counts based on configuration
-        assert len(tools_disabled) == 1  # Only web_search
-        assert len(tools_enabled) == 2  # web_search + 1 deepwiki tool
+    @patch("common.tools.get_mcpo_tools", new_callable=AsyncMock)
+    async def test_create_tools_combines_local_and_remote(
+        self, mock_get_mcpo_tools: AsyncMock
+    ) -> None:
+        mock_remote_tool = MagicMock(name="RemoteSearch")
+        mock_get_mcpo_tools.return_value = [mock_remote_tool]
+        context = Context(mcpo_url="http://test-server/mcp")
+
+        all_tools = await create_tools(context)
+
+        mock_get_mcpo_tools.assert_awaited_once_with("http://test-server/mcp")
+        assert len(all_tools) == 3
+        # FIX: Check for the new class name
+        assert any(isinstance(t, TavilySearch) for t in all_tools)
+        assert any(isinstance(t, PythonREPLTool) for t in all_tools)
+        assert mock_remote_tool in all_tools

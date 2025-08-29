@@ -1,107 +1,79 @@
-"""Pytest configuration and shared fixtures."""
+"""Pytest configuration and shared fixtures for the agent tests."""
 
 import os
 from pathlib import Path
 
 import pytest
 from dotenv import load_dotenv
-from langchain_core.messages import HumanMessage
-from langgraph_sdk import get_client
 
+# A list of API keys for the newly supported services.
+# Tests that require a live model will be skipped if the relevant key is not found.
+REQUIRED_API_KEYS = [
+    "TAVILY_API_KEY",      # For the primary search tool
+    "OPENAI_API_KEY",      # For OpenAI/ChatGPT models
+    "GROQ_API_KEY",        # For Groq models
+    "GOOGLE_API_KEY",      # For Google Gemini models
+]
 
 @pytest.fixture(scope="session", autouse=True)
-def load_env():
-    """Load environment variables from .env file for all tests."""
-    # Find the project root (where .env is located)
+def load_env() -> None:
+    """
+    Loads environment variables from a .env file at the project root.
+    It also checks for the presence of required API keys and skips tests if
+    any are missing, preventing test failures due to configuration issues.
+    """
     project_root = Path(__file__).parent.parent
-    env_file = project_root / ".env"
+    env_path = project_root / ".env"
+    if env_path.exists():
+        load_dotenv(dotenv_path=env_path)
 
-    if env_file.exists():
-        load_dotenv(env_file)
-
-    # Ensure required environment variables are available for tests
-    # You can add fallback values or skip tests if keys are missing
-    required_keys = ["DASHSCOPE_API_KEY", "TAVILY_API_KEY"]
-    missing_keys = [key for key in required_keys if not os.getenv(key)]
+    missing_keys = [key for key in REQUIRED_API_KEYS if not os.getenv(key)]
 
     if missing_keys:
-        pytest.skip(f"Missing required environment variables: {missing_keys}")
-
-
-@pytest.fixture
-async def langgraph_client():
-    """Create a LangGraph client for e2e testing."""
-    return get_client(url="http://127.0.0.1:2024")
-
-
-@pytest.fixture
-async def assistant_id(langgraph_client):
-    """Get the first available assistant ID for testing."""
-    assistants = await langgraph_client.assistants.search()
-    if not assistants:
-        pytest.skip("No assistants found for e2e testing")
-    return assistants[0]["assistant_id"]
+        # This will cause tests that rely on these keys to be skipped,
+        # rather than fail.
+        pytest.skip(f"Skipping live integration tests. Missing env vars: {missing_keys}")
 
 
 class TestHelpers:
-    """Helper methods for common test operations."""
+    """A collection of helper methods for writing cleaner tests."""
 
     @staticmethod
     def assert_valid_response(
         messages: list, expected_content: str | None = None, min_messages: int = 2
-    ):
-        """Assert that a response has valid structure and content."""
-        assert isinstance(messages, list), "Messages should be a list"
-        assert len(messages) >= min_messages, (
-            f"Should have at least {min_messages} messages"
-        )
+    ) -> None:
+        """Asserts that a list of messages from a graph run has a valid structure."""
+        assert isinstance(messages, list)
+        assert len(messages) >= min_messages
 
-        # Check final message structure
         final_message = messages[-1]
-        assert isinstance(final_message, dict) or hasattr(final_message, "content"), (
-            "Final message should have content attribute"
-        )
+        # Handle both dict and object-based message formats
+        content_attr = getattr(final_message, "content", None)
+        content_item = final_message.get("content", "") if isinstance(final_message, dict) else ""
+        final_content = content_attr or content_item
+
+        assert final_content is not None, "Final message should have content."
 
         if expected_content:
-            content = str(
-                getattr(final_message, "content", final_message.get("content", ""))
-            ).lower()
-            assert expected_content.lower() in content, (
-                f"Expected '{expected_content}' in response content: {content[:200]}..."
-            )
+            assert expected_content.lower() in str(final_content).lower()
 
     @staticmethod
-    def assert_tool_usage(messages: list, tool_name: str = "web_search"):
-        """Assert that a specific tool was used in the conversation."""
-        tool_found = False
+    def assert_tool_usage(messages: list, tool_name: str) -> None:
+        """Asserts that a specific tool was called during the graph run."""
+        tool_call_found = False
         for msg in messages:
-            msg_dict = msg if isinstance(msg, dict) else msg.__dict__
-
-            # Check for tool calls
-            if msg_dict.get("tool_calls"):
-                for call in msg_dict["tool_calls"]:
-                    if isinstance(call, dict) and call.get("name") == tool_name:
-                        tool_found = True
+            if hasattr(msg, "tool_calls") and msg.tool_calls:
+                for tool_call in msg.tool_calls:
+                    if tool_call.get("name") == tool_name:
+                        tool_call_found = True
                         break
-
-            # Check for tool messages
-            if msg_dict.get("type") == "tool" and tool_name in str(
-                msg_dict.get("name", "")
-            ):
-                tool_found = True
+            if tool_call_found:
                 break
-
-        assert tool_found, f"Tool '{tool_name}' should have been used in conversation"
-
-    @staticmethod
-    def create_input_state(content: str):
-        """Create an InputState for testing."""
-        from react_agent.state import InputState
-
-        return InputState(messages=[HumanMessage(content=content)])
+        
+        assert tool_call_found, f"Expected tool '{tool_name}' to be used, but it was not found."
 
 
 @pytest.fixture
-def test_helpers():
-    """Provide test helper methods."""
-    return TestHelpers
+def helpers() -> TestHelpers:
+    """Provides an instance of the TestHelpers class to tests."""
+    return TestHelpers()

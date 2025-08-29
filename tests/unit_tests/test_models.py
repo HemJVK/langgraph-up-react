@@ -1,189 +1,93 @@
-"""Test custom model integrations."""
+"""
+Unit tests for the custom model integration module.
 
-import os
-from unittest.mock import Mock, patch
+This file tests the model factory (`create_model`), the helper function to
+list supported models, and the `load_chat_model` utility.
+"""
 
+from unittest.mock import patch, MagicMock
 import pytest
 
-from common.models import create_qwen_model, get_supported_qwen_models
+from dotenv import load_dotenv
+
+load_dotenv()
+
+from common.models import create_model, get_supported_models
 from common.utils import load_chat_model
 
-
-def test_get_supported_qwen_models():
-    """Test that supported Qwen models are returned."""
-    models = get_supported_qwen_models()
-    assert isinstance(models, list)
-    assert "qwq-32b-preview" in models
-
-
-@patch("common.models.ChatQwQ")
-@patch.dict(os.environ, {"REGION": ""}, clear=False)
-def test_create_qwen_model_qwq(mock_chat_qwq):
-    """Test QwQ model creation uses ChatQwQ."""
-    mock_instance = Mock()
-    mock_chat_qwq.return_value = mock_instance
-
-    result = create_qwen_model("qwq-32b-preview", api_key="test-key")
-
-    assert result == mock_instance
-    mock_chat_qwq.assert_called_once_with(model="qwq-32b-preview", api_key="test-key")
+# A list of model providers to test.
+# When a new provider is added, its info should be added here for automatic testing.
+SUPPORTED_PROVIDERS_CONFIG = [
+    ("openai", "gpt-4o-mini", "common.models.ChatOpenAI"),
+    ("groq", "llama3-70b-8192", "common.models.ChatGroq"),
+    ("ollama", "llama3", "common.models.ChatOllama"),
+    ("gemini", "gemini-1.5-pro-latest", "common.models.ChatGoogleGenerativeAI"),
+]
 
 
-@patch("common.models.ChatQwQ")
-@patch.dict(os.environ, {"REGION": ""}, clear=False)
-def test_create_qwen_model_qvq(mock_chat_qwq):
-    """Test QvQ model creation also uses ChatQwQ."""
-    mock_instance = Mock()
-    mock_chat_qwq.return_value = mock_instance
+class TestModelFactory:
+    """Tests the create_model factory function."""
 
-    result = create_qwen_model("qvq-72b-preview", api_key="test-key")
+    def test_get_supported_models(self) -> None:
+        """
+        Verify that get_supported_models returns a non-empty list of strings.
+        """
+        models = get_supported_models()
+        assert isinstance(models, list)
+        assert len(models) > 0
+        # Check that the format seems correct for at least one entry
+        assert ":" in models[0]
 
-    assert result == mock_instance
-    mock_chat_qwq.assert_called_once_with(model="qvq-72b-preview", api_key="test-key")
+    @pytest.mark.parametrize("provider, model_name, mock_path", SUPPORTED_PROVIDERS_CONFIG)
+    def test_create_model_dispatches_correctly(
+        self, provider: str, model_name: str, mock_path: str
+    ) -> None:
+        """
+        Test that create_model calls the correct LangChain class for each provider.
+        This is a parametrized test that runs for every entry in SUPPORTED_PROVIDERS_CONFIG.
+        """
+        with patch(mock_path) as mock_chat_class:
+            model_string = f"{provider}:{model_name}"
+            create_model(model_string)
 
+            # Assert that the correct class was instantiated
+            mock_chat_class.assert_called_once()
+            call_args = mock_chat_class.call_args[1]
 
-@patch("common.models.ChatQwen")
-@patch.dict(os.environ, {"REGION": ""}, clear=False)
-def test_create_qwen_model_qwen_plus(mock_chat_qwen):
-    """Test Qwen+ model creation uses ChatQwen."""
-    mock_instance = Mock()
-    mock_chat_qwen.return_value = mock_instance
+            # Groq's LangChain integration uses 'model_name' instead of 'model'
+            if provider == "groq":
+                assert call_args["model_name"] == model_name
+            else:
+                assert call_args["model"] == model_name
 
-    result = create_qwen_model("qwen-plus", api_key="test-key")
-
-    assert result == mock_instance
-    mock_chat_qwen.assert_called_once_with(model="qwen-plus", api_key="test-key")
-
-
-@patch("common.models.ChatQwQ")
-def test_create_qwen_model_qwq_with_prc_region(mock_chat_qwq):
-    """Test QwQ model creation with PRC region."""
-    mock_instance = Mock()
-    mock_chat_qwq.return_value = mock_instance
-
-    result = create_qwen_model("qwq-32b-preview", api_key="test-key", region="prc")
-
-    assert result == mock_instance
-    mock_chat_qwq.assert_called_once_with(
-        model="qwq-32b-preview",
-        api_key="test-key",
-        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-    )
-
-
-@patch("common.models.ChatQwen")
-def test_create_qwen_model_qwen_plus_with_international_region(mock_chat_qwen):
-    """Test Qwen+ model creation with international region."""
-    mock_instance = Mock()
-    mock_chat_qwen.return_value = mock_instance
-
-    result = create_qwen_model("qwen-plus", api_key="test-key", region="international")
-
-    assert result == mock_instance
-    mock_chat_qwen.assert_called_once_with(
-        model="qwen-plus",
-        api_key="test-key",
-        base_url="https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
-    )
+    def test_create_model_passes_extra_kwargs(self) -> None:
+        """
+        Verify that additional keyword arguments are passed to the model's constructor.
+        """
+        with patch("common.models.ChatOpenAI") as mock_chat_openai:
+            create_model("openai:gpt-4o", temperature=0.5, max_tokens=100)
+            mock_chat_openai.assert_called_once_with(
+                model="gpt-4o", temperature=0.5, max_tokens=100
+            )
 
 
-@patch("common.models.ChatQwen")
-@patch.dict(os.environ, {"DASHSCOPE_API_KEY": "env-key", "REGION": ""})
-def test_create_qwen_model_with_env_key(mock_chat_qwen):
-    """Test Qwen model creation using environment variable for API key."""
-    mock_instance = Mock()
-    mock_chat_qwen.return_value = mock_instance
+class TestLoadChatModelUtil:
+    """Tests the load_chat_model utility function."""
 
-    result = create_qwen_model("qwen-plus")
+    @patch("common.utils.create_model")
+    def test_load_chat_model_is_a_wrapper_for_create_model(self, mock_create_model: MagicMock) -> None:
+        """
+        Verify that load_chat_model simply calls create_model.
+        This confirms we have successfully centralized our model creation logic.
+        """
+        # Arrange
+        mock_model_instance = MagicMock()
+        mock_create_model.return_value = mock_model_instance
+        model_string = "openai:gpt-4o-mini"
 
-    assert result == mock_instance
-    mock_chat_qwen.assert_called_once_with(model="qwen-plus", api_key="env-key")
+        # Act
+        result = load_chat_model(model_string)
 
-
-@patch("common.models.ChatQwen")
-@patch.dict(os.environ, {"DASHSCOPE_API_KEY": "env-key", "REGION": "prc"})
-def test_create_qwen_model_with_env_region_prc(mock_chat_qwen):
-    """Test Qwen model creation using environment variable for region (PRC)."""
-    mock_instance = Mock()
-    mock_chat_qwen.return_value = mock_instance
-
-    result = create_qwen_model("qwen-plus")
-
-    assert result == mock_instance
-    mock_chat_qwen.assert_called_once_with(
-        model="qwen-plus",
-        api_key="env-key",
-        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-    )
-
-
-@patch("common.models.ChatQwQ")
-@patch.dict(os.environ, {"DASHSCOPE_API_KEY": "env-key", "REGION": "international"})
-def test_create_qwq_model_with_env_region_international(mock_chat_qwq):
-    """Test QwQ model creation using environment variable for region (international)."""
-    mock_instance = Mock()
-    mock_chat_qwq.return_value = mock_instance
-
-    result = create_qwen_model("qwq-32b-preview")
-
-    assert result == mock_instance
-    mock_chat_qwq.assert_called_once_with(
-        model="qwq-32b-preview",
-        api_key="env-key",
-        base_url="https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
-    )
-
-
-@patch("common.models.ChatQwQ")
-def test_create_qwq_model_with_custom_base_url(mock_chat_qwq):
-    """Test QwQ model creation with custom base URL."""
-    mock_instance = Mock()
-    mock_chat_qwq.return_value = mock_instance
-
-    custom_url = "https://custom.example.com/v1"
-    result = create_qwen_model(
-        "qwq-32b-preview", api_key="test-key", base_url=custom_url
-    )
-
-    assert result == mock_instance
-    mock_chat_qwq.assert_called_once_with(
-        model="qwq-32b-preview", api_key="test-key", base_url=custom_url
-    )
-
-
-@patch("common.utils.create_qwen_model")
-def test_load_chat_model_qwen_provider(mock_create_qwen):
-    """Test load_chat_model with Qwen provider."""
-    mock_instance = Mock()
-    mock_create_qwen.return_value = mock_instance
-
-    result = load_chat_model("qwen:qwq-32b-preview")
-
-    assert result == mock_instance
-    mock_create_qwen.assert_called_once_with("qwq-32b-preview")
-
-
-@patch("common.utils.init_chat_model")
-def test_load_chat_model_standard_provider(mock_init_chat_model):
-    """Test load_chat_model with standard provider (non-QwQ)."""
-    mock_instance = Mock()
-    mock_init_chat_model.return_value = mock_instance
-
-    result = load_chat_model("openai:gpt-4o-mini")
-
-    assert result == mock_instance
-    mock_init_chat_model.assert_called_once_with("gpt-4o-mini", model_provider="openai")
-
-
-def test_load_chat_model_colon_separator_parsing():
-    """Test that colon separator is parsed correctly."""
-    with patch("common.utils.init_chat_model") as mock_init:
-        mock_init.return_value = Mock()
-        load_chat_model("anthropic:claude-3-sonnet")
-        mock_init.assert_called_once_with("claude-3-sonnet", model_provider="anthropic")
-
-
-def test_load_chat_model_invalid_format():
-    """Test that load_chat_model raises error for invalid format."""
-    with pytest.raises(ValueError):
-        load_chat_model("invalid-format-without-separator")
+        # Assert
+        assert result is mock_model_instance
+        mock_create_model.assert_called_once_with(model_string)
