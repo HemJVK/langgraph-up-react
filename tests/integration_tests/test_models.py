@@ -10,6 +10,7 @@ import pytest
 from unittest.mock import patch, AsyncMock, MagicMock
 from langchain_core.messages import AIMessage, HumanMessage
 from dotenv import load_dotenv
+
 load_dotenv()
 
 from common.context import Context
@@ -48,11 +49,11 @@ async def test_agent_workflow_with_all_providers(
         # 1. Mock the model instance and its methods
         mock_model_instance = MagicMock()
         mock_model_instance.bind_tools.return_value = mock_model_instance
-        
+
         # The model will return a simple, direct answer
-        mock_response = AIMessage(content=f"Response from {provider}")
+        mock_response = AIMessage(content=f"Final Answer: Response from {provider}")
         mock_model_instance.ainvoke = AsyncMock(return_value=mock_response)
-        
+
         # The mocked class should return our mocked instance
         mock_chat_class.return_value = mock_model_instance
 
@@ -76,6 +77,6 @@ async def test_agent_workflow_with_all_providers(
 
         # 2. Verify that the correct model class was initialized once
         mock_chat_class.assert_called_once()
-        
+
         # 3. Verify that the model instance was invoked
         mock_model_instance.ainvoke.assert_awaited_once()

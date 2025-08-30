@@ -34,7 +34,7 @@ class TestLocalToolCreation:
         context = Context(max_search_results=10, mcpo_url="")
         tools = await create_tools(context)
 
-        assert len(tools) == 2
+        assert len(tools) == 6
         # FIX: Check for the new class name
         assert any(isinstance(t, TavilySearch) for t in tools)
         assert any(isinstance(t, PythonREPLTool) for t in tools)
@@ -89,7 +89,7 @@ class TestCombinedToolCreation:
         all_tools = await create_tools(context)
 
         mock_get_mcpo_tools.assert_awaited_once_with("http://test-server/mcp")
-        assert len(all_tools) == 3
+        assert len(all_tools) == 7
         # FIX: Check for the new class name
         assert any(isinstance(t, TavilySearch) for t in all_tools)
         assert any(isinstance(t, PythonREPLTool) for t in all_tools)

@@ -28,7 +28,7 @@ async def call_model(state: State) -> Dict[str, List[AIMessage]]:
         system_time=datetime.now(tz=UTC).isoformat(),
         tools=tool_descriptions,
     )
-    model = load_chat_model(context.model).bind_tools(available_tools)
+    model =  load_chat_model(context.model).bind_tools(available_tools)
     messages = [{"role": "system", "content": system_message}, *state.messages]
     response = cast(AIMessage, await model.ainvoke(messages))
 
